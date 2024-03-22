@@ -1,0 +1,432 @@
+---
+Title: "Evolutionary Computation For Finance and AI for Finance"
+Author: "DHAIRYA NITIN GOGRI"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+#the focus here is that I have selected 10 assets based on various industires and using genetic algorthms I have implemented set of different weights(balanced, evolved, random) to find optimal solution. the libraries needed for implementing GA are below:
+```{r}
+library(fmsb)# to plot radar chart
+library(caret)#library to divide data because cant add year name to column to divide into train and test
+library(ggplot2)# library to plot graphs
+library(GA)#library for implementing GAs
+library(quantmod)# library to analyse quantitative financial data
+library(xts)#library to uniformly handle diff. time based data
+library(zoo)#library to observe ordered observations in R
+```
+# Assets:
+All assets are from different industries so that the risk factor decreases and we get optimal returns
+1)  VT = Vanguard total Index Funds - Index funds
+2)  AAPL = Apple inc - electronics company
+3)  VOO = Vanguard Index 500 funds - index funds: 500
+4)  SR = spire inc - utilities
+5)  TSLA = Tesla - car manufacturer
+6)  FC = Franklin Convey company - consulting service
+7)  AMD = Advanced micro device - microprocessor manufacture
+8)  SPI = Spi energy co - solar
+9)  VTLE = vital energy - Oil and gas company
+10) KBH KB Home - construction
+```{r, echo=FALSE, results=FALSE, message=FALSE, warning=FALSE, cache = TRUE}
+myStock<-c("VT", "AAPL", "VOO", "SR", "TSLA", "FC", "AMD", "SPI", "VTLE", "KBH")
+```
+getSymbols() to get data from the yahoo financial website from and to the dates.
+```{r, echo=FALSE, results=FALSE, message=FALSE, warning=FALSE, cache = TRUE}
+getSymbols(myStock,src="yahoo", from="2019-01-01",to="2021-01-01")
+```
+
+dataframe to store and merge the daily returns of the stocks
+dailyreturn to get the daily returns of the stocks
+
+```{r, echo=FALSE, results=FALSE, message=FALSE, warning=FALSE, cache = TRUE}
+AssetsDF<- data.frame((merge(dailyReturn(VT),dailyReturn(AAPL),dailyReturn(VOO),dailyReturn(SR),dailyReturn(TSLA),dailyReturn(FC),dailyReturn(AMD),dailyReturn(SPI),dailyReturn(VTLE),dailyReturn(KBH))))
+View(AssetsDF)
+colnames(AssetsDF)
+#if(is.null(names(AssetsDF)))
+#{
+#  names(AssetsDF) <- (year)
+#}
+lenAssetsDF = length(AssetsDF)
+col_lengths <- sapply(AssetsDF, function(x) length(x))
+print(col_lengths)
+```
+Dividing Data into train and test for current and future data
+```{r}
+train_data <- subset(AssetsDF,select= 1:(col_lengths/2))  # Use data before 2020 for training
+test_data <- subset(AssetsDF,select = (col_lengths/2 + 1):col_lengths)  # Use data from 2020 for testing
+View(train_data)
+View(test_data)
+```
+
+Covariance is typically used to calculate the fitness of a particular portfolio..
+```{r, echo=FALSE, results=FALSE, message=FALSE, warning=FALSE, cache = TRUE}
+covariance = cov(AssetsDF) 
+print(covariance)
+```
+above we can see the covariance is mostly positive but for spi and tsla, spi and vtle has negative correlation 
+#Here we will calculate the returns of stocks using the for loop
+```{r}
+for (i in 2:ncol(AssetsDF)) {
+  # time string and rate for ith asset
+  rate_asset = AssetsDF[,i] 
+  print(rate_asset)
+  # lagging the price with 1
+  rates_prev = c(NA,rate_asset[1:(length(rate_asset)-1)]) 
+  print(rates_prev)
+  break
+  # time string returns
+  ret_time_string = (rate_asset-rates_prev)/rates_prev 
+  
+  # Refill the column ith with returns
+  AssetsDF[,i] = ret_time_string
+}
+print(AssetsDF)
+# now Remove rows with NAs and the Date column
+
+AssetsDF <- AssetsDF[, -1]  # Remove the first column (Date)
+AssetsDF <- AssetsDF[complete.cases(AssetsDF), ]  # Remove rows with NAs
+print(AssetsDF)
+```
+The first line removes the Date column by subsetting the data frame with [, -1]. The -1 means to exclude the first column. The second line removes rows with NAs using the complete.cases() function, which returns a logical vector indicating whether each row is complete
+
+#Now, we have to find optimal portfolio by altering weight values because historical values are same and doing addtion of port return and AssetsDF 
+# Here,i doing creation and evaluation of portfolios as well as differently blanced risk and return, and calculating random weights for optimisation because we need to calculate further function after that we have to printing the weights.
+```{r}
+# Calculate the random weights
+weight <- runif(n = length(myStock))
+weight <- weight/sum(weight)
+print(weight)
+print(sum(weight))
+port.returns <- (sum(weight * AssetsDF) + 1)^252 - 1# Calculate the portfolio returns
+port_risk <- sqrt(t(weight) %*% (covariance %*% weight))# Calculate the portfolio risk
+sharpe_ratio <- port.returns/port_risk# Calculate the Sharpe Ratio
+print(port.returns)
+print(port_risk)
+print(sharpe_ratio)
+```
+#As we can see the portfolio returns for 2019 is 7.082296e+32, the risk is  0.03291744, the sharpe ratio is 2.151533e+34
+
+```{r}
+  ret_of_portf = function(x) {
+  port.returns = 0 #This initializes the port.returns variable to zero.
+  
+  # This loop iterates over each weight x[i] in the x vector, which contains the weights of the assets in the portfolio
+  for (i in 1:length(x)) {
+    port.returns = port.returns + AssetsDF[,i] * x[i]
+  }#For each weight x[i], the function multiplies the returns of the ith asset in the AssetsDF data frame by the weight x[i]. This is equivalent to calculating the contribution of the ith asset to the total return of the portfolio. The contribution of each asset is then added to port.returns.
+  
+  return (port.returns)
+}
+```
+
+# In order to translate our issue into untrained optimization and calculate portfolio return for the mean and square root of variance, we are employing the penalty function.
+
+```{r}
+sharpe = function(x) {
+  port.returns = ret_of_portf(x)
+   return (mean(port.returns)/sqrt(var(port.returns)))
+}#This calculates the Sharpe ratio of the portfolio as the ratio of the expected returns to the volatility (standard deviation) of the returns. Specifically, it calculates the average of the port.returns vector divided by its standard deviation using the mean() and sqrt(var()) functions, respectively.
+```
+# constraint function for Comparison of the evolved portfolio with balanced and random portfolios since we using max function to return boundry constraint .
+```{r}
+constraint = function(x) {
+ bound_c = (sum(x)-1)**2   # "sum x = 1" constraint
+ 
+ for (i in 1:length(x)) {
+  bound_c = bound_c + 
+     max(c(0,x[i]-1))**2 +  # "x <= 1" constraint
+     max(c(0,-x[i]))**2     # "x >= 0" constraint
+ }
+ return (bound_c)
+}
+```
+# if we still face problem of optimization so we are doing multiplication by -1 then it resolves the problem
+```{r}
+obj = function(x) {
+    return (-sharpe(x)+100*constraint(x)) # We want max sharpe ratio,therefore we multiply it by -1 to fit an optimization problem
+}
+```
+#Here, ga function is used to optimize a real-valued fitness function. The function(x) argument is the fitness function that takes a vector x as input, and returns the negative value of the objective function obj(x). The negative sign is used because the GA algorithm in the GA package seeks to maximize the fitness function, and the objective function obj(x) is defined as a minimization problem.the goal of the GA is to find the portfolio that minimizes the objective function obj(x), and the fitness of each portfolio is calculated as the negative value of obj(x).lower and upper arguments are used to set the lower and upper bounds for the portfolio weights, respectively. The maxiter argument specifies the maximum number of generations the GA algorithm will run. The run argument specifies the number of independent runs to perform. The seed argument is used to set the random seed for reproducibility.
+```{r}
+res_ga = ga(
+      type="real-valued", 
+      function(x){-obj(x)}, 
+      lower = rep(0,ncol(train_data)), 
+      upper = rep(1,ncol(train_data)), 
+      maxiter = 2000, 
+      run=50, 
+      parallel=TRUE,
+      monitor=TRUE,
+      seed=1
+)
+sol = as.vector(summary(res_ga)$solution)
+View(sol)
+cbind(names(AssetsDF),sol)
+```
+
+# ploting the graph using plot function for optimal returns of weights
+```{r first plot, echo=TRUE, message=TRUE, warning=FALSE, results=TRUE, include = TRUE, cache = TRUE}
+dev.new(width = 10, height = 10)
+plot.new()
+optimal_returns = ret_of_portf(sol)
+#radarchart(AssetsDF, axistype=1, plwd=1:5, pcol=1, centerzero=TRUE,
+# seg=4, caxislabels=c("worst", "", "", "", "best"),
+# title="(use lty and lwd but b/w, axis=1,\n centerzero=TRUE, with centerlabels)")
+plot(cumsum(optimal_returns),type="l",lwd=5)
+lines(cumsum(AssetsDF[,]),col="yellow")
+lines(cumsum(AssetsDF[,1]),col="hotpink4")
+lines(cumsum(AssetsDF[,2]),col="red")
+lines(cumsum(AssetsDF[,3]),col="blue")
+lines(cumprod(AssetsDF[,4]),col="green")
+lines(cumsum(AssetsDF[,5]),col="black")
+lines(cumsum(AssetsDF[,6]),col="lightblue")
+lines(cumsum(AssetsDF[,7]),col="maroon")
+lines(cumsum(AssetsDF[,8]),col="purple")
+lines(cumsum(AssetsDF[,9]),col="snow4")
+legend(0,1.5,legend=c("VT", "AAPL", "VOO", "SR", "TSLA", "FC", "AMD", "SPI", "VTLE", "KBH"),lty = 1, cex = 0.8)
+       col = c("yellow","hotpink4","red","blue","green","black","lightblue","maroon","purple","snow4","")
+
+```
+
+#comparing differnt portfolios random weighted, evolved, fixed weight and plotting function.
+#Function that evaluates and plot np, randomly weighted portfolios from a list of assets, and a custom portfolio list.
+```{r}
+
+compare_portfolios <- function(AssetsDF, time_string, np, custom_w, custom_w_names, title)
+{
+  
+  #generate random weights set
+  nc <- NCOL(AssetsDF)
+  weight_set <- c()
+  for (i in 1:np) 
+  {
+    wi <- runif(nc)
+    wi <- wi / sum(wi)
+    weight_set <- rbind(weight_set,wi)
+  }
+
+  #evaluate random portfolios
+  x_risk <- c()
+  y_ret <- c()
+  for (w in 1:nrow(weight_set)) {
+    perf <- fast_portfolio_eval(weight_set[w,], this_matrices, in_GA=FALSE)
+    x_risk <- c(x_risk,perf$risk)
+    y_ret  <- c(y_ret, perf$return)
+  }
+  max_ret <- max(y_ret)+0.2
+  max_risk <- max(x_risk)+0.01
+  
+  #plot random portfolios
+  plot(x_risk, y_ret,  pch=20, xlim=c(0,max_risk), ylim=c(0,max_ret), main=title)
+  
+  #evaluate, plot custom portfolios and save performance information
+  performance_data <- data.frame()
+  this_ind <-1
+  for (w in custom_w) 
+    {
+    perf <- fast_portfolio_eval(w, this_matrices, in_GA=FALSE)
+    this_risk <- perf$risk
+    this_ret  <- perf$return
+    this_ratio = perf$fitness
+    this_color <- color_list[this_ind]
+    points(this_risk, this_ret, pch = 8, col = this_color, lwd = 2)
+    this_row <- c(custom_w_names[this_ind], this_ret, this_risk, this_ratio, this_color)
+    performance_data <- rbind(performance_data, this_row)
+    this_ind <- this_ind +1
+  }
+  
+    legend("topleft", title = "Portfolios", legend = c(custom_w_names),  fill= c(color_list), horiz=FALSE, cex=0.8)
+  
+  
+  names(performance_data) <- c("Portfolio", "Return", "Risk", "R_Ratio", "Color")
+  
+  return(performance_data)
+}
+```
+
+# evoluting unseen future data for the year 2020 and comparing it with 2019 data we received from above.
+```{r}
+#time string variable for 2019 and 2020
+y2019 <- "2019-01-01/2019-12-31"
+y2020 <- "2020-01-01/2020-12-31"
+
+years <- c(y2019,y2020)
+#calculate optimum portfolio for each year
+n_iter <- 1000
+n_pop <- 300
+
+myStock2020<-c("VT", "AAPL", "VOO", "SR", "TSLA", "FC", "AMD", "SPI", "VTLE", "KBH")
+getSymbols(myStock,src="yahoo", from="2020-01-01",to="2020-12-31")
+AssetsDF2020<- data.frame((merge(dailyReturn(VT),dailyReturn(AAPL),dailyReturn(VOO),dailyReturn(SR),
+                                  dailyReturn(TSLA),dailyReturn(FC),dailyReturn(AMD),dailyReturn(SPI),
+                                  dailyReturn(VTLE),dailyReturn(KBH))))
+covariance = cov(AssetsDF2020) 
+res_ga2020 = ga(
+      type="real-valued", 
+      function(x){-obj(x)}, 
+      lower = rep(0,ncol(AssetsDF2020)), 
+      upper = rep(1,ncol(AssetsDF2020)), 
+      maxiter = 2000, 
+      run=50, 
+      parallel=TRUE,
+      monitor=TRUE,
+      seed=1
+)
+port2019 <- res_ga
+plot(res_ga)
+port2020 <- res_ga2020
+plot(res_ga2020)
+
+#storing portfolio weights
+weight2019 <- c(port2019@solution / sum(port2019@solution))
+weight2020 <- c(port2020@solution / sum(port2020@solution))
+```
+# Comparision of the above portfolio with balanced random and evolved portfolios
+
+```{r}
+rand_weight <- weight #random weights from above line 92
+eqlWeight <- c(1,1,1,1,1,1,1,1,1,1) / 10 # weight equal 
+evolved <- c(res_ga@solution/sum(res_ga@solution))# evolved portfolio from the above used real-valued GA
+```
+#Comparing the above 2019, 2020, random weight portfolio, equal weight portfolio, evolved portfolio with each other
+```{r}
+comparingPort <- list(rand_weight, eqlWeight, evolved)
+comparingPort_names <- list("port2019","port2020", "Equal Weights" , "Evolved")
+this_performance <- compare_portfolios(my_Assets, y2019, 700, comparingPort, comparingPort_names,"Portfolios")
+```
+## Part 2: Using GAs to select the assets
+#Selecting 10 assets from a pool of 50 in order to feed them to the portfolio optimizing GA
+```{r}
+fiftyAssets <- c("VT", "EMXC", "VOO", "VGK", "MCHI", "VPL", "BND", "PFUIX", 
+                 "PDBC", "GLD", "AAPL", "AGG", "AMD","BLK", "ECH", "ENZL",
+                 "EWU", "EWZ", "F", "AA", "MRK", "GM", "GOOG", "ILF", "IZRL",
+                 "MA", "MSFT", "NKE", "NVDA", "PHDG", "PG", "SLV", "XOM",
+                 "TSLA", "TSM", "V", "VNQ", "VNQI", "VSGX", "AMZN", "PYPL",
+                 "NFLX", "BABA", "JNJ", "CVX", "SQ", "BA", "JPM", "DIS", "BAC")
+
+fiftyAssets <- sort(fiftyAssets)
+
+getSymbols(fiftyAssets, from="2018-12-31",to="2020-12-31")
+
+getAssetsFifty <- function(w_vector, big_list)
+{
+  select_list = list() 
+  for (a in 1:length(w_vector))
+  {
+    if (w_vector[a]==1) { select_list <- append(select_list,big_list[a]) }
+  }
+  return (select_list)
+}
+
+```
+#fitness function for the assets in here it peanilises the portfolio if there are more or less than 10 assets active at the same time
+#The vector below contains 50 positions, where a 1 represent an asset used in the portfolio, and 0 represents asset is not used in the portfolio. This function assumes portfolios are equally weighted.
+#The fiftyAssetEval function calculates the adjusted fitness value of a given binary weight vector for a portfolio of fifty assets. The function takes four inputs:
+#w_vector: a binary weight vector of length 50 representing the allocation of each asset in the portfolio.
+#big_list: a list containing the asset data for all fifty assets.
+#time_string: a character string specifying the time period for which the data should be used.
+#in_GA: a boolean indicating whether the function is being called from within a genetic algorithm optimization process.
+#The function first creates a mini_vector of equal weights for each asset in the portfolio, then applies a penalty to the fitness score if the sum of the weight vector is not equal to 10 (which represents 100% allocation). The function then uses the getAssetsFifty function to select the assets corresponding to the binary weight vector from the big_list, and uses build_matrices to generate matrices of prices, daily returns, yearly returns, and covariance from the selected asset data.
+#The function calculates the daily and annualized standard deviation of the portfolio using the covariance matrix, and calculates the annualized expected return of the portfolio using the `mini_vector
+```{r}
+fiftyAssetEval <- function(w_vector, big_list, time_string, in_GA)
+{
+  mini_vector <- c(1,1,1,1,1,1,1,1,1,1)
+  mini_vector <- mini_vector /sum(mini_vector)
+  
+  penalty <- (2 * (sum(w_vector)-10)^2) 
+  
+  if (sum(w_vector) != 10) {return (-penalty)}
+  
+  asset_list <- getAssetsFifty(w_vector, big_list)
+  this_matrices <- build_matrices(asset_list,time_string)
+  
+  price_m <- this_matrices$price_matrix
+  d_ret_m <- this_matrices$daily_return_matrix
+  y_ret_m <- this_matrices$yearly_return_matrix
+  
+  cov_m <- cov(d_ret_m)
+  
+  n_days = 252
+  
+  d_P_risk <- t(mini_vector) %*% cov_m %*% mini_vector #daily
+  y_P_risk <- ((1 + d_P_risk)^n_days)-1 #annualize
+  y_P_risk <- sqrt(y_P_risk) #annualized standard deviation
+  
+  y_P_return <- sum(mini_vector * y_ret_m)
+
+  return_to_risk <- y_P_return / y_P_risk
+  
+  
+  adj_fitness <- return_to_risk - penalty
+  
+  if (in_GA) {return(adj_fitness)}
+  else {
+  return(list("time" = time_string, 
+              "return" = y_P_return, 
+              "risk" = y_P_risk, 
+              "fitness" = adj_fitness))
+  }
+}
+
+binaryGA <- function(big_list, time_string, max_i, pop_size, in_GA=TRUE) {
+  B_GA <- ga(type="binary",
+             nBits = 50,
+             maxiter = max_i,
+             fitness = function(w_vector) 
+               fiftyAssetEval(w_vector, big_list, time_string, in_GA),
+             popSize = pop_size,
+             suggestions = create_rnd_port(pop_size,50,10)
+             )
+  
+  plot(B_GA)
+  return(B_GA)
+}
+
+create_rnd_port <- function(n_samples, vector_size, n_active)
+{
+ 
+  this_matrix <- matrix(ncol=vector_size, nrow=0, byrow=TRUE)
+  prob <- n_active / vector_size
+  
+  for (s in 1:n_samples)
+  {
+      this_row <- c()
+      for (i in 1:vector_size)
+      {
+        this_rn <- runif(1)
+        if (this_rn <= prob) {a = 1}
+        else {a = 0}
+        this_row <- c(this_row, a)
+      }
+      this_matrix <- rbind(this_matrix,this_row)
+  }
+  return (this_matrix)
+}
+```
+#Created a GA with the ability to choose the top 10 asset combinations from  50 stocks.
+here we choose 2019 as time period for performance evaluation and asset selection.
+The strategy I came up with is looking for the best equally weighted portfolio of 10 assets.
+the Return to Risk ratio penalizes having less or more than 10 stocks
+The algorithm performs well during the initial trials, but it wasted a lot of generations attempting to determine the ideal number of assets to use. As a result, it is recommended that users start with random portfolios that contain about 10 assets but learning is much enhanced in this method.
+
+```{r}
+finalGA <- binaryGA(fiftyAssets,"2018-12-31/2020-01-01",150,300,TRUE)
+print(paste(getAssetsFifty(finalGA@solution,fiftyAssets)))
+
+fiftyAssetEval(finalGA@solution, fiftyAssets, "2018-12-31/2020-01-01", FALSE)
+GA_selected_assets <- getAssetsFifty(finalGA@solution,fiftyAssets)
+GA_selected_GA <- create_GA(GA_selected_assets, y2019, 1500, 300)
+plot(GA_selected_GA)
+
+
+evolvedSelGA <- c(GA_selected_GA@solution/sum(GA_selected_GA@solution))
+
+```
